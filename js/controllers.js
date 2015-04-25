@@ -1,6 +1,6 @@
 var sequenceApp = angular.module('sequenceApp', []);
 
-sequenceApp.controller('SequencerControl', ['$scope', '$http', '$timeout', 'SessionAudio', 'Transport', function ($scope, $http, $timeout, SessionAudio, Transport) {
+sequenceApp.controller('SequencerControl', ['$scope', '$http', '$timeout', 'SessionAudio', 'Sequence', 'Transport', function ($scope, $http, $timeout, SessionAudio, Sequence, Transport) {
     var audio = new SessionAudio();
 
     $scope.transport = new Transport();
@@ -16,13 +16,15 @@ sequenceApp.controller('SequencerControl', ['$scope', '$http', '$timeout', 'Sess
 
     $scope.sequences = [];
 
+    var j = new Sequence.kick();
+
     var defaultSequences = [
         { 'sample': $scope.samples[0], 'gain': 1.0, 'buffer': null,
-          'pattern':  ['k', '-', '-', '-', 'k', '-', '-', '-', 'k', '-', '-', '-', 'k', '-', '-', '-'] },
+          'pattern':  ['.', '-', '-', '-', '.', '-', '-', '-', '.', '-', '-', '-', '.', '-', '-', '-'] },
         { 'sample': $scope.samples[1], 'gain': 0.7, 'buffer': null,
-          'pattern':  ['-', '-', '-', '-', 's', '-', '-', '-', '-', '-', '-', '-', 's', '-', '-', '-'] },
+          'pattern':  ['-', '-', '-', '-', '.', '-', '-', '-', '-', '-', '-', '-', '.', '-', '-', '-'] },
         { 'sample': $scope.samples[2], 'gain': 0.5, 'buffer': null,
-          'pattern':  ['-', '-', 'h', '-', '-', '-', 'h', '-', '-', '-', 'h', '-', '-', '-', 'h', '-'] },
+          'pattern':  ['-', '-', '.', '-', '-', '-', '.', '-', '-', '-', '.', '-', '-', '-', '.', '-'] },
     ];
 
     defaultSequences.forEach(function(seq) {
@@ -206,9 +208,7 @@ sequenceApp.factory('SessionAudio', ['$window', '$http', function(window, $http)
 }]);
 
 sequenceApp.factory('Transport', function() {
-    function Transport() {
-
-    };
+    function Transport() {};
 
     Transport.prototype = {
         tempo: 120,
@@ -223,4 +223,69 @@ sequenceApp.factory('Transport', function() {
     };
 
     return Transport;
+});
+
+sequenceApp.factory('Sequence', ['Sample', function(Sample) {
+    function Sequence(gain, pattern, sample) {
+        this.gain = gain;
+        this.pattern = pattern;
+        this.sample = sample;
+    };
+
+    Sequence.kick = function() {
+        return new Sequence(1.0, ['.', '-', '-', '-', '.', '-', '-', '-', '.', '-', '-', '-', '.', '-', '-', '-'], Sample.kick());
+    };
+
+    Sequence.prototype = {
+        buffer: null,
+        displayPattern: function() {
+            var self = this;
+            return this.pattern.map(function(string) {
+                if (string === '.') {
+                    return self.sample.displayCharacter;
+                }
+                else {
+                    return string;
+                }
+            });
+        }
+    };
+
+    return Sequence;
+}]);
+
+sequenceApp.factory('Sample', function() {
+    function Sample(name, displayCharacter, url) {
+        this.name = name;
+        this.displayCharacter = displayCharacter;
+        this.url = url;
+    };
+
+    Sample.kick = function() {
+        return new Sample('kick', 'k', 'audio/kick.mp3');
+    };
+
+    Sample.snare = function() {
+        return new Sample('snare', 's', 'audio/snare.mp3');
+    };
+
+    Sample.hihat = function() {
+        return new Sample('hihat', 'h', 'audio/hihat.mp3');
+    };
+
+    Sample.rim = function() {
+        return new Sample('rim', 'r', 'audio/rim.wav');
+    };
+
+    Sample.cowbell = function() {
+        return new Sample('cowbell', 'c', 'audio/cowbell.mp3');
+    };
+
+    Sample.prototype = {
+        name: 'sample',
+        displayCharacter: '0',
+        url: null
+    };
+
+    return Sample;
 });
