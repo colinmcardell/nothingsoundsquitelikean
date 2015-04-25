@@ -1,6 +1,6 @@
 var sequenceApp = angular.module('sequenceApp', []);
 
-sequenceApp.controller('SequencerControl',['$scope', '$http', '$timeout', 'SessionAudio', 'Transport', function ($scope, $http, $timeout, SessionAudio, Transport) {
+sequenceApp.controller('SequencerControl', ['$scope', '$http', '$timeout', 'SessionAudio', 'Transport', function ($scope, $http, $timeout, SessionAudio, Transport) {
     var audio = new SessionAudio();
 
     $scope.transport = new Transport();
@@ -33,54 +33,57 @@ sequenceApp.controller('SequencerControl',['$scope', '$http', '$timeout', 'Sessi
 
     // Public $scope methods
     $scope.toggleBeat = function(sequence, index) {
-        var letter = sequence.sample.displayChar
-        if (sequence.pattern[index] == '-') {
-            sequence.pattern[index] = letter
-        } else {
-            sequence.pattern[index] = '-'
+        var letter = sequence.sample.displayChar;
+        if (sequence.pattern[index] === '-') {
+            sequence.pattern[index] = letter;
         }
-    }
+        else {
+            sequence.pattern[index] = '-';
+        }
+    };
 
     $scope.updateTempo = function(e) {
-        if (e.keyCode == 13) {
-            var inputTempo = parseInt(e.currentTarget.value)
-            var wasPlaying = $scope.transport.isPlaying
+        if (e.keyCode === 13) {
+            var inputTempo = parseInt(e.currentTarget.value);
+            var wasPlaying = $scope.transport.isPlaying;
+
             if (inputTempo > 0 && inputTempo < 1000) {
-                $scope.stop()
-                $scope.transport.tempo = inputTempo
+                $scope.stop();
+                $scope.transport.tempo = inputTempo;
                 // If we wait for a bit here, we don't get the EXPLOSION.
                 // Not ideal, but I am out of time.
-                if (wasPlaying == true) {
+                if (wasPlaying === true) {
                     $timeout(function() {
-                       $scope.start()
-                    }, 50)
+                       $scope.start();
+                    }, 50);
                 }
-            } else {
-                console.log('Error:  Tempo value out of range')
+            }
+            else {
+                console.log('Error:  Tempo value out of range');
             }
         }
-    }
+    };
 
     $scope.start = function() {
-        $scope.transport.isPlaying = true
+        $scope.transport.isPlaying = true;
         schedulePlay(audio.context.currentTime);
-    }
+    };
 
     $scope.stop = function() {
-        $scope.transport.isPlaying = false
-        $scope.transport.numLoops = 0
-    }
+        $scope.transport.isPlaying = false;
+        $scope.transport.numLoops = 0;
+    };
 
     $scope.checkIndex = function(index) {
-        if ($scope.transport.visualIndex == index) {
-            return true
+        if ($scope.transport.visualIndex === index) {
+            return true;
         } else {
-            return false
+            return false;
         }
         }
 
     $scope.addTrack = function() {
-        if ($scope.nextSample == null) {
+        if ($scope.nextSample === null) {
             return;
         }
 
@@ -91,9 +94,9 @@ sequenceApp.controller('SequencerControl',['$scope', '$http', '$timeout', 'Sessi
     };
 
     $scope.removeTrack = function(sequence) {
-        var index = $scope.sequences.indexOf(sequence)
-        $scope.sequences.splice(index, 1)
-    }
+        var index = $scope.sequences.indexOf(sequence);
+        $scope.sequences.splice(index, 1);
+    };
 
     function _addSequence(seq) {
         $scope.sequences.push(seq);
@@ -104,62 +107,65 @@ sequenceApp.controller('SequencerControl',['$scope', '$http', '$timeout', 'Sessi
 
     // Private functions for playback
     function getNextNoteTime(startTime, sixteenthNote) {
-        var loopOffset = $scope.transport.numLoops * (240.0 / $scope.transport.tempo)
-        var indexOffset = ($scope.transport.currentIndex - $scope.transport.oldIndex)  * sixteenthNote
-        return startTime + loopOffset + indexOffset
-    }
+        var loopOffset = $scope.transport.numLoops * (240.0 / $scope.transport.tempo);
+        var indexOffset = ($scope.transport.currentIndex - $scope.transport.oldIndex)  * sixteenthNote;
+        return startTime + loopOffset + indexOffset;
+    };
 
     schedulePlay = function(startTime) {
-        if ($scope.transport.isPlaying == false) {
-            $scope.transport.oldIndex = $scope.transport.currentIndex
-            return
+        if ($scope.transport.isPlaying === false) {
+            $scope.transport.oldIndex = $scope.transport.currentIndex;
+            return;
         }
         // Find the time until the next note
-        var sixteenthNote = 60.0 / $scope.transport.tempo / 4.0 // seconds
-        var nextNoteTime = getNextNoteTime(startTime, sixteenthNote)
+        var sixteenthNote = 60.0 / $scope.transport.tempo / 4.0; // seconds
+        var nextNoteTime = getNextNoteTime(startTime, sixteenthNote);
 
         // Schedule the next note or notes using playSound
         while (nextNoteTime < audio.context.currentTime + $scope.transport.lookAhead) {
-            for (var i = 0; i < $scope.sequences.length; i++) {
-                var seq = $scope.sequences[i]
-                if (seq.pattern[$scope.transport.currentIndex] != '-') {
+            $scope.sequences.forEach(function(seq) {
+                if (seq.pattern[$scope.transport.currentIndex] !== '-') {
                     audio.playSound(nextNoteTime, seq.buffer, seq.gain);
-                } else if ($scope.transport.currentIndex == 0 && $scope.transport.numLoops == 0) {
+                }
+                else if ($scope.transport.currentIndex === 0 && $scope.transport.numLoops === 0) {
                     // Bootstrap the start:
                     // Web Audio will not start the audioContext timer moving,
                     // unless we give it something to play.
                     audio.playSound(nextNoteTime, seq.buffer, 0.0);
                 }
-            }
+            });
+
             // Increment the overall sequence,
-            $scope.transport.currentIndex = ($scope.transport.currentIndex + 1) % 16
+            $scope.transport.currentIndex = ($scope.transport.currentIndex + 1) % 16;
 
             // Increment each sequence's graphics, on schedule
             var theTime = (nextNoteTime - audio.context.currentTime) *  1000;
             $timeout(function() {
-                $scope.transport.visualIndex = ($scope.transport.visualIndex + 1) % 16
-            }, theTime)
+                $scope.transport.visualIndex = ($scope.transport.visualIndex + 1) % 16;
+            }, theTime);
 
             // Keep track of where our audio-time loop is
-            $scope.transport.loopCounter++
-            if ($scope.transport.loopCounter == 16) {
-                $scope.transport.numLoops++
-                $scope.transport.loopCounter = 0
+            $scope.transport.loopCounter++;
+            if ($scope.transport.loopCounter === 16) {
+                $scope.transport.numLoops++;
+                $scope.transport.loopCounter = 0;
             }
 
             // Update the tempo
-            sixteenthNote = 60.0 / $scope.transport.tempo / 4.0 // seconds
-            nextNoteTime = nextNoteTime + sixteenthNote
+            sixteenthNote = 60.0 / $scope.transport.tempo / 4.0; // seconds
+            nextNoteTime = nextNoteTime + sixteenthNote;
         }
 
         // Once all notes in this range are added, schedule the next call
         $timeout(function() {
-            schedulePlay(startTime)
-        }, $scope.transport.scheduleInterval)
-    }
+            schedulePlay(startTime);
+        }, $scope.transport.scheduleInterval);
+    };
 
 }]);
 
+// Session Audio Object. Handles the audio context, loading and playback of
+// audio.
 sequenceApp.factory('SessionAudio', ['$window', '$http', function(window, $http) {
     function SessionAudio() {
         window.AudioContext = window.AudioContext || window.webkitAudioContext;
