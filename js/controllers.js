@@ -1,6 +1,7 @@
-var sequenceApp = angular.module('sequenceApp', [])
+var sequenceApp = angular.module('sequenceApp', []);
 
-sequenceApp.controller('SequencerControl', function ($scope, $http, $timeout) {
+sequenceApp.controller('SequencerControl', ['$scope', '$http', '$timeout', 'SessionAudio', function ($scope, $http, $timeout, SessionAudio) {
+    var audio = new SessionAudio();
 
     // Set up samples and sequences
     $scope.samples = [
@@ -9,37 +10,24 @@ sequenceApp.controller('SequencerControl', function ($scope, $http, $timeout) {
         {'name': 'hihat', 'displayChar': 'h', 'url': 'audio/hihat.mp3'},
         {'name': 'rim', 'displayChar': 'r', 'url': 'audio/rim.wav'},
         {'name': 'cowbell', 'displayChar':  'c', 'url': 'audio/cowbell.mp3'},
-    ]
+    ];
 
-    $scope.sequences = [
-        {'sample': $scope.samples[0], 'gain': 1.0, 'buffer': null,
-        'pattern':  ['k', '-', '-', '-', 'k', '-', '-', '-', 'k', '-', '-', '-', 'k', '-', '-', '-']
-        },
-        {'sample': $scope.samples[1], 'gain': 0.7, 'buffer': null,
-        'pattern':  ['-', '-', '-', '-', 's', '-', '-', '-', '-', '-', '-', '-', 's', '-', '-', '-']
-        },
-        {'sample': $scope.samples[2], 'gain': 0.5, 'buffer': null,
-        'pattern':  ['-', '-', 'h', '-', '-', '-', 'h', '-', '-', '-', 'h', '-', '-', '-', 'h', '-']
-        },
-    ]
+    $scope.sequences = [];
+
+    var defaultSequences = [
+        { 'sample': $scope.samples[0], 'gain': 1.0, 'buffer': null,
+          'pattern':  ['k', '-', '-', '-', 'k', '-', '-', '-', 'k', '-', '-', '-', 'k', '-', '-', '-'] },
+        { 'sample': $scope.samples[1], 'gain': 0.7, 'buffer': null,
+          'pattern':  ['-', '-', '-', '-', 's', '-', '-', '-', '-', '-', '-', '-', 's', '-', '-', '-'] },
+        { 'sample': $scope.samples[2], 'gain': 0.5, 'buffer': null,
+          'pattern':  ['-', '-', 'h', '-', '-', '-', 'h', '-', '-', '-', 'h', '-', '-', '-', 'h', '-'] },
+    ];
+
+    defaultSequences.forEach(function(seq) {
+        _addSequence(seq);
+    });
 
     $scope.nextSample = $scope.samples[$scope.sequences.length];
-
-    // Create audio context, load audio
-    window.AudioContext = window.AudioContext || window.webkitAudioContext;
-    var context = new AudioContext();
-    loadAudio = function(url, sequence) {
-        $http.get(url, {'responseType': 'arraybuffer'}).success(function(data) {
-            context.decodeAudioData(data, function(buffer) {
-                sequence.buffer = buffer
-            }, function() {console.log('Error Loading audio!')})
-        })
-    }
-
-    for (var i = 0; i < $scope.sequences.length; i++) {
-        var sample = $scope.sequences[i].sample
-        loadAudio(sample.url, $scope.sequences[i])
-    }
 
     // Global transport object for dealing with timing
     var transport = {
@@ -53,7 +41,7 @@ sequenceApp.controller('SequencerControl', function ($scope, $http, $timeout) {
         'lookAhead': 0.1, // seconds
         'scheduleInterval': 30, // milliseconds
     }
-    
+
     // Public $scope methods
     $scope.toggleBeat = function(sequence, index) {
         var letter = sequence.sample.displayChar
@@ -80,13 +68,13 @@ sequenceApp.controller('SequencerControl', function ($scope, $http, $timeout) {
                 }
             } else {
                 console.log('Error:  Tempo value out of range')
-            }           
+            }
         }
     }
 
     $scope.start = function() {
         transport.isPlaying = true
-        schedulePlay(context.currentTime)
+        schedulePlay(audio.context.currentTime);
     }
 
     $scope.stop = function() {
@@ -100,27 +88,30 @@ sequenceApp.controller('SequencerControl', function ($scope, $http, $timeout) {
         } else {
             return false
         }
-    }
+        }
 
     $scope.addTrack = function() {
         if ($scope.nextSample == null) {
-            return
+            return;
         }
-        var newSequence = {
-            'sample': $scope.nextSample,
-            'gain': 0.7, 
-            'buffer': null,
-            'pattern':  ['-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-']
-        }   
 
-        $scope.sequences.push(newSequence)
-        loadAudio(newSequence.sample.url, newSequence)
-    }
+        var newSequence = { 'sample': $scope.nextSample, 'gain': 0.7, 'buffer': null,
+                            'pattern': ['-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-'] };
+
+        _addSequence(newSequence);
+    };
 
     $scope.removeTrack = function(sequence) {
         var index = $scope.sequences.indexOf(sequence)
         $scope.sequences.splice(index, 1)
     }
+
+    function _addSequence(seq) {
+        $scope.sequences.push(seq);
+        audio.loadSound(seq.sample.url, function(err, buffer) {
+            seq.buffer = buffer;
+        });
+    };
 
     // Private functions for playback
     function getNextNoteTime(startTime, sixteenthNote) {
@@ -139,23 +130,23 @@ sequenceApp.controller('SequencerControl', function ($scope, $http, $timeout) {
         var nextNoteTime = getNextNoteTime(startTime, sixteenthNote)
 
         // Schedule the next note or notes using playSound
-        while (nextNoteTime < context.currentTime + transport.lookAhead) {
+        while (nextNoteTime < audio.context.currentTime + transport.lookAhead) {
             for (var i = 0; i < $scope.sequences.length; i++) {
                 var seq = $scope.sequences[i]
                 if (seq.pattern[transport.currentIndex] != '-') {
-                    playSound(nextNoteTime, seq.buffer, seq.gain)
+                    audio.playSound(nextNoteTime, seq.buffer, seq.gain);
                 } else if (transport.currentIndex == 0 && transport.numLoops == 0) {
                     // Bootstrap the start:
-                    // Web Audio will not start the audioContext timer moving, 
+                    // Web Audio will not start the audioContext timer moving,
                     // unless we give it something to play.
-                    playSound(nextNoteTime, seq.buffer, 0.0)
+                    audio.playSound(nextNoteTime, seq.buffer, 0.0);
                 }
             }
             // Increment the overall sequence,
             transport.currentIndex = (transport.currentIndex + 1) % 16
 
             // Increment each sequence's graphics, on schedule
-            var theTime = (nextNoteTime - context.currentTime) *  1000
+            var theTime = (nextNoteTime - audio.context.currentTime) *  1000;
             $timeout(function() {
                 transport.visualIndex = (transport.visualIndex + 1) % 16
             }, theTime)
@@ -178,15 +169,43 @@ sequenceApp.controller('SequencerControl', function ($scope, $http, $timeout) {
         }, transport.scheduleInterval)
     }
 
-    // Raw, strongly-timed WebAudio playback
-    playSound = function(when, buffer, gain) {
-        var source = context.createBufferSource()
-        source.buffer = buffer
-        var gainNode = context.createGain();
-        gainNode.gain.value = gain;
-        source.connect(gainNode);
-        gainNode.connect(context.destination);
-        source.start(when)
-        return source
-    }
-})
+}]);
+
+sequenceApp.factory('SessionAudio', ['$window', '$http', function(window, $http) {
+    function SessionAudio() {
+        window.AudioContext = window.AudioContext || window.webkitAudioContext;
+        this.context = new AudioContext();
+    };
+
+    SessionAudio.prototype = {
+        // Async loading of audio from URL with completion
+        loadSound: function(url, next) {
+            var self = this;
+            $http.get(url, {'responseType': 'arraybuffer'}).success(function(data) {
+                self.context.decodeAudioData(data, function(buffer) {
+                    next(null, buffer);
+                }, function(err) {
+                    console.log('Error Loading Audio');
+                    next(err, null);
+                });
+            });
+        },
+        // Raw, strongly-timed WebAudio playback
+        playSound: function(when, buffer, gain) {
+            var dest = this.context.destination,
+                gainNode = this.context.createGain(),
+                source = this.context.createBufferSource();
+
+            gainNode.gain.value = gain;
+            gainNode.connect(dest);
+
+            source.buffer = buffer;
+            source.connect(gainNode);
+            source.start(when);
+
+            return source;
+        }
+    };
+
+    return SessionAudio;
+}]);
