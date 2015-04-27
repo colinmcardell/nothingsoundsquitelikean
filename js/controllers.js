@@ -1,49 +1,27 @@
-var sequenceApp = angular.module('sequenceApp', []);
+var app = angular.module('sequenceApp', []);
 
-sequenceApp.controller('SequencerControl', ['$scope', '$http', '$timeout', 'SessionAudio', 'Sequence', 'Transport', function ($scope, $http, $timeout, SessionAudio, Sequence, Transport) {
-    var audio = new SessionAudio();
+app.controller('SequencerControl', ['$scope', '$timeout', 'audioContext', 'Sequence', 'Transport', function ($scope, $timeout, audioContext, Sequence, Transport) {
+    var audio = audioContext(),
+        visualIndex = -1;
 
     $scope.transport = new Transport();
+    // Observe transport and fire appropriate function on tick
+    $scope.transport.observe(_transportTick);
 
-    // Set up samples and sequences
-    $scope.samples = [
-        {'name': 'kick', 'displayChar': 'k', 'url': 'audio/kick.mp3'},
-        {'name': 'snare', 'displayChar': 's', 'url': 'audio/snare.mp3'},
-        {'name': 'hihat', 'displayChar': 'h', 'url': 'audio/hihat.mp3'},
-        {'name': 'rim', 'displayChar': 'r', 'url': 'audio/rim.wav'},
-        {'name': 'cowbell', 'displayChar':  'c', 'url': 'audio/cowbell.mp3'},
+    // Set up sequences and samples
+    // Sequences that are available to be added by user
+    $scope.availableSequences = Sequence.availableSequences();
+
+    // New sequence to be added by user
+    $scope.newSequence = null;
+
+    $scope.sequences = [
+        Sequence.kick(),
+        Sequence.snare(),
+        Sequence.hihat()
     ];
-
-    $scope.sequences = [];
-
-    var j = new Sequence.kick();
-
-    var defaultSequences = [
-        { 'sample': $scope.samples[0], 'gain': 1.0, 'buffer': null,
-          'pattern':  ['.', '-', '-', '-', '.', '-', '-', '-', '.', '-', '-', '-', '.', '-', '-', '-'] },
-        { 'sample': $scope.samples[1], 'gain': 0.7, 'buffer': null,
-          'pattern':  ['-', '-', '-', '-', '.', '-', '-', '-', '-', '-', '-', '-', '.', '-', '-', '-'] },
-        { 'sample': $scope.samples[2], 'gain': 0.5, 'buffer': null,
-          'pattern':  ['-', '-', '.', '-', '-', '-', '.', '-', '-', '-', '.', '-', '-', '-', '.', '-'] },
-    ];
-
-    defaultSequences.forEach(function(seq) {
-        _addSequence(seq);
-    });
-
-    $scope.nextSample = $scope.samples[$scope.sequences.length];
 
     // Public $scope methods
-    $scope.toggleBeat = function(sequence, index) {
-        var letter = sequence.sample.displayChar;
-        if (sequence.pattern[index] === '-') {
-            sequence.pattern[index] = letter;
-        }
-        else {
-            sequence.pattern[index] = '-';
-        }
-    };
-
     $scope.updateTempo = function(e) {
         if (e.keyCode === 13) {
             var inputTempo = parseInt(e.currentTarget.value);
@@ -61,231 +39,357 @@ sequenceApp.controller('SequencerControl', ['$scope', '$http', '$timeout', 'Sess
                 }
             }
             else {
-                console.log('Error:  Tempo value out of range');
+                console.log('Error: Tempo value out of range');
             }
         }
     };
 
     $scope.start = function() {
-        $scope.transport.isPlaying = true;
-        schedulePlay(audio.context.currentTime);
+        $scope.transport.play();
     };
 
     $scope.stop = function() {
-        $scope.transport.isPlaying = false;
-        $scope.transport.numLoops = 0;
+        $scope.transport.stop();
     };
 
-    $scope.checkIndex = function(index) {
-        if ($scope.transport.visualIndex === index) {
+    $scope.checkHighlighted = function(index) {
+        if (visualIndex === index) {
             return true;
-        } else {
+        }
+        else {
             return false;
         }
-        }
+    };
 
-    $scope.addTrack = function() {
-        if ($scope.nextSample === null) {
+    $scope.addSequence = function() {
+        var newSeq = $scope.newSequence;
+        // If isn't in available sequences, return out
+        if ($scope.availableSequences.indexOf(newSeq) < 0) {
             return;
         }
 
-        var newSequence = { 'sample': $scope.nextSample, 'gain': 0.7, 'buffer': null,
-                            'pattern': ['-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-'] };
-
-        _addSequence(newSequence);
+        $scope.sequences.push(newSeq.new());
     };
 
-    $scope.removeTrack = function(sequence) {
+    $scope.removeSequence = function(sequence) {
         var index = $scope.sequences.indexOf(sequence);
         $scope.sequences.splice(index, 1);
     };
 
-    function _addSequence(seq) {
-        $scope.sequences.push(seq);
-        audio.loadSound(seq.sample.url, function(err, buffer) {
-            seq.buffer = buffer;
+
+    // Private functions for playback
+    function _transportTick(nextNoteTime, index) {
+        visualIndex = index;
+        $scope.sequences.forEach(function(seq) {
+            seq.step(nextNoteTime, index);
+
+            // Commenting the below out for the time being, I'm not seeing any
+            // playback issues without it (colin@colinmcardell.com)
+            // if (index === 0 && $scope.transport.numLoops === 0) {
+            //     // Bootstrap the start:
+            //     // Web Audio will not start the audioContext timer moving,
+            //     // unless we give it something to play.
+            //     seq.sample.play(nextNoteTime, 0.0);
+            // }
         });
     };
 
-    // Private functions for playback
-    function getNextNoteTime(startTime, sixteenthNote) {
-        var loopOffset = $scope.transport.numLoops * (240.0 / $scope.transport.tempo);
-        var indexOffset = ($scope.transport.currentIndex - $scope.transport.oldIndex)  * sixteenthNote;
-        return startTime + loopOffset + indexOffset;
-    };
+}]);
 
-    schedulePlay = function(startTime) {
-        if ($scope.transport.isPlaying === false) {
-            $scope.transport.oldIndex = $scope.transport.currentIndex;
-            return;
-        }
-        // Find the time until the next note
-        var sixteenthNote = 60.0 / $scope.transport.tempo / 4.0; // seconds
-        var nextNoteTime = getNextNoteTime(startTime, sixteenthNote);
-
-        // Schedule the next note or notes using playSound
-        while (nextNoteTime < audio.context.currentTime + $scope.transport.lookAhead) {
-            $scope.sequences.forEach(function(seq) {
-                if (seq.pattern[$scope.transport.currentIndex] !== '-') {
-                    audio.playSound(nextNoteTime, seq.buffer, seq.gain);
-                }
-                else if ($scope.transport.currentIndex === 0 && $scope.transport.numLoops === 0) {
-                    // Bootstrap the start:
-                    // Web Audio will not start the audioContext timer moving,
-                    // unless we give it something to play.
-                    audio.playSound(nextNoteTime, seq.buffer, 0.0);
-                }
-            });
-
-            // Increment the overall sequence,
-            $scope.transport.currentIndex = ($scope.transport.currentIndex + 1) % 16;
-
-            // Increment each sequence's graphics, on schedule
-            var theTime = (nextNoteTime - audio.context.currentTime) *  1000;
-            $timeout(function() {
-                $scope.transport.visualIndex = ($scope.transport.visualIndex + 1) % 16;
-            }, theTime);
-
-            // Keep track of where our audio-time loop is
-            $scope.transport.loopCounter++;
-            if ($scope.transport.loopCounter === 16) {
-                $scope.transport.numLoops++;
-                $scope.transport.loopCounter = 0;
+app.service('audioContext', ['$window', function(window) {
+    // Places an audioContext on window
+    // Had to do this for test ability as well as the fact dependency injection
+    // can kind of mess with the desire to have only one audioContext
+    return function() {
+        if (window.audioContext === undefined) {
+            if (typeof AudioContext !== 'undefined') {
+                window.audioContext = new AudioContext();
             }
-
-            // Update the tempo
-            sixteenthNote = 60.0 / $scope.transport.tempo / 4.0; // seconds
-            nextNoteTime = nextNoteTime + sixteenthNote;
+            else if (typeof webkitAudioContext !== 'undefined') {
+                window.audioContext = new webkitAudioContext();
+            }
+            else {
+                throw new Error('AudioContext not supported.');
+            }
         }
 
-        // Once all notes in this range are added, schedule the next call
-        $timeout(function() {
-            schedulePlay(startTime);
-        }, $scope.transport.scheduleInterval);
+        return window.audioContext;
     };
-
 }]);
 
-// Session Audio Object. Handles the audio context, loading and playback of
-// audio.
-sequenceApp.factory('SessionAudio', ['$window', '$http', function(window, $http) {
-    function SessionAudio() {
-        window.AudioContext = window.AudioContext || window.webkitAudioContext;
-        this.context = new AudioContext();
-    };
-
-    SessionAudio.prototype = {
-        // Async loading of audio from URL with completion
-        loadSound: function(url, next) {
-            var self = this;
-            $http.get(url, {'responseType': 'arraybuffer'}).success(function(data) {
-                self.context.decodeAudioData(data, function(buffer) {
-                    next(null, buffer);
-                }, function(err) {
-                    console.log('Error Loading Audio');
-                    next(err, null);
-                });
-            });
-        },
-        // Raw, strongly-timed WebAudio playback
-        playSound: function(when, buffer, gain) {
-            var dest = this.context.destination,
-                gainNode = this.context.createGain(),
-                source = this.context.createBufferSource();
-
-            gainNode.gain.value = gain;
-            gainNode.connect(dest);
-
-            source.buffer = buffer;
-            source.connect(gainNode);
-            source.start(when);
-
-            return source;
-        }
-    };
-
-    return SessionAudio;
-}]);
-
-sequenceApp.factory('Transport', function() {
+app.factory('Transport', ['$timeout', 'audioContext', function($timeout, audioContext) {
     function Transport() {};
 
     Transport.prototype = {
-        tempo: 120,
-        isPlaying: false,
         currentIndex: 0,
-        oldIndex: 0,
-        visualIndex: -1,
-        numLoops: 0,
+        isPlaying: false,
         loopCounter: 0,
         lookAhead: 0.1, // seconds
+        numLoops: 0,
+        oldIndex: 0,
+        observers: [],
         scheduleInterval: 30, // milliseconds
+        tempo: 120,
+    };
+
+    Transport.prototype.nextNoteTime = function(startTime) {
+        var loopOffset = this.numLoops * (240.0 / this.tempo),
+            indexOffset = (this.currentIndex - this.oldIndex)  * this.sixteenthNote();
+        return startTime + loopOffset + indexOffset;
+    };
+
+    Transport.prototype.notifyTransportTick = function(nextNoteTime, currentIndex) {
+        var observers = this.observers;
+        observers.forEach(function(observer) {
+            observer.callback(nextNoteTime, currentIndex);
+        });
+    };
+
+    Transport.prototype.observe = function(onTransportTickCallback) {
+        this.observers.push({
+            callback: onTransportTickCallback
+        });
+        return this;
+    };
+
+    Transport.prototype.play = function() {
+        this.isPlaying = true;
+        this.schedulePlay(audioContext().currentTime);
+        return this;
+    }
+
+    Transport.prototype.schedulePlay = function(startTime) {
+        if (this.isPlaying === false) {
+            this.oldIndex = this.currentIndex;
+            return;
+        }
+
+        var nextNoteTime = this.nextNoteTime(startTime),
+            currentTime = audioContext().currentTime;
+            self = this;
+
+        while (this.nextNoteTime(startTime) < currentTime + this.lookAhead) {
+            // Notify Observers of transport tick
+            this.notifyTransportTick(nextNoteTime, this.currentIndex);
+
+            // Increment the overall sequence
+            this.currentIndex = (this.currentIndex + 1) % 16;
+
+            // Keep track of where our audio-time loop is
+            this.loopCounter++;
+            if (this.loopCounter === 16) {
+                this.numLoops++;
+                this.loopCounter = 0;
+            }
+        }
+
+        $timeout(function() {
+            self.schedulePlay(startTime);
+        }, this.scheduleInterval);
+    };
+
+    Transport.prototype.sixteenthNote = function() {
+        return 15 / this.tempo;
+    };
+
+    Transport.prototype.stop = function() {
+        this.isPlaying = false;
+        this.numLoops = 0;
+        return this;
     };
 
     return Transport;
-});
+}]);
 
-sequenceApp.factory('Sequence', ['Sample', function(Sample) {
-    function Sequence(gain, pattern, sample) {
-        this.gain = gain;
-        this.pattern = pattern;
+app.factory('Sequence', ['Sample', function(Sample) {
+    function Sequence(sample) {
+        this.gain = 1.0;
+        this.pattern = ['.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.'];
         this.sample = sample;
     };
 
-    Sequence.kick = function() {
-        return new Sequence(1.0, ['.', '-', '-', '-', '.', '-', '-', '-', '.', '-', '-', '-', '.', '-', '-', '-'], Sample.kick());
+    Sequence.sequences = {
+        kick: {
+            name: 'kick',
+            new: function() {
+                var seq = new Sequence(Sample.kick());
+                seq.pattern = ['-', '.', '.', '.', '-', '.', '.', '.', '-', '.', '.', '.', '-', '.', '.', '.'];
+                return seq;
+            }
+        },
+        snare: {
+            name: 'snare',
+            new: function() {
+                var seq = new Sequence(Sample.snare());
+                seq.pattern = ['.', '.', '.', '.', '-', '.', '.', '.', '.', '.', '.', '.', '-', '.', '.', '.'];
+                return seq;
+            }
+        },
+        hihat: {
+            name: 'hihat',
+            new: function() {
+                var seq = new Sequence(Sample.hihat());
+                seq.pattern = ['.', '.', '-', '.', '.', '.', '-', '.', '.', '.', '-', '.', '.', '.', '-', '.'];
+                return seq;
+            }
+        },
+        rim: {
+            name: 'rim',
+            new: function() {
+                return new Sequence(Sample.rim());
+            }
+        },
+        cowbell: {
+            name: 'cowbell',
+            new: function() {
+                return new Sequence(Sample.cowbell());
+            }
+        },
     };
 
-    Sequence.prototype = {
-        buffer: null,
-        displayPattern: function() {
-            var self = this;
-            return this.pattern.map(function(string) {
-                if (string === '.') {
-                    return self.sample.displayCharacter;
-                }
-                else {
-                    return string;
-                }
-            });
+    Sequence.availableSequences = function() {
+        var keys = Object.keys(Sequence.sequences);
+        return keys.map(function(v) {
+            return Sequence.sequences[v];
+        });
+    };
+
+    // Helper / Factory Methods
+    Sequence.kick = function() {
+        return Sequence.sequences['kick'].new();
+    };
+
+    Sequence.snare = function() {
+        return Sequence.sequences['snare'].new();
+    };
+
+    Sequence.hihat = function() {
+        return Sequence.sequences['hihat'].new();
+    };
+
+    Sequence.rim = function() {
+        return Sequence.sequences['rim'].new();
+    };
+
+    Sequence.cowbell = function() {
+        return Sequence.sequences['cowbell'].new();
+    };
+
+    Sequence.prototype.displayPattern = function() {
+        var self = this;
+        return this.pattern.map(function(string) {
+            if (string === '-') {
+                return self.sample.displayCharacter;
+            }
+            else {
+                return '-';
+            }
+        });
+    };
+
+    Sequence.prototype.step = function(nextNoteTime, index) {
+        if (this.pattern[index] !== '.') {
+            this.sample.play(nextNoteTime, this.gain);
         }
+    };
+
+    Sequence.prototype.toggleStep = function(index) {
+        var beat = this.pattern[index];
+        this.pattern[index] = (beat === '-') ? '.' : '-';
     };
 
     return Sequence;
 }]);
 
-sequenceApp.factory('Sample', function() {
-    function Sample(name, displayCharacter, url) {
-        this.name = name;
-        this.displayCharacter = displayCharacter;
-        this.url = url;
+app.factory('Sample', ['audioContext', '$http', function(audioContext, $http) {
+    function Sample(options) {
+        this.name = options.name;
+        this.displayCharacter = options.displayCharacter;
+        this.url = options.url;
+    }
+
+    Sample.samples = {
+        kick: {
+            name: 'kick',
+            displayCharacter: 'k',
+            url: 'audio/kick.mp3'
+        },
+        snare: {
+            name: 'snare',
+            displayCharacter: 's',
+            url: 'audio/snare.mp3'
+        },
+        hihat: {
+            name: 'hihat',
+            displayCharacter: 'h',
+            url: 'audio/hihat.mp3'
+        },
+        rim: {
+            name: 'rim',
+            displayCharacter: 'r',
+            url: 'audio/rim.wav'
+        },
+        cowbell: {
+            name: 'cowbell',
+            displayCharacter: 'c',
+            url: 'audio/cowbell.mp3'
+        }
     };
 
     Sample.kick = function() {
-        return new Sample('kick', 'k', 'audio/kick.mp3');
+        return new Sample(Sample.samples['kick']).load();
     };
 
     Sample.snare = function() {
-        return new Sample('snare', 's', 'audio/snare.mp3');
+        return new Sample(Sample.samples['snare']).load();
     };
 
     Sample.hihat = function() {
-        return new Sample('hihat', 'h', 'audio/hihat.mp3');
+        return new Sample(Sample.samples['hihat']).load();
     };
 
     Sample.rim = function() {
-        return new Sample('rim', 'r', 'audio/rim.wav');
+        return new Sample(Sample.samples['rim']).load();
     };
 
     Sample.cowbell = function() {
-        return new Sample('cowbell', 'c', 'audio/cowbell.mp3');
+        return new Sample(Sample.samples['cowbell']).load();
     };
 
     Sample.prototype = {
-        name: 'sample',
+        buffer: null,
+        context: audioContext(),
         displayCharacter: '0',
-        url: null
+        name: 'sample',
+        url: null,
+    };
+
+    Sample.prototype.load = function() {
+        var self = this;
+        $http.get(this.url, {'responseType': 'arraybuffer'}).success(function(data) {
+            self.context.decodeAudioData(data, function(buffer) {
+                self.buffer = buffer;
+            }, function(err) {
+                console.log('Error Loading Audio');
+            });
+        });
+        return this;
+    };
+
+    Sample.prototype.play = function(when, gain) {
+        var dest = this.context.destination,
+            gainNode = this.context.createGain(),
+            source = this.context.createBufferSource();
+
+        gainNode.gain.value = gain;
+        gainNode.connect(dest);
+
+        source.buffer = this.buffer;
+        source.connect(gainNode);
+        source.start(when);
+
+        return source;
     };
 
     return Sample;
-});
+}]);
